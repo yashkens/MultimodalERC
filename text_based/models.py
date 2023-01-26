@@ -53,11 +53,11 @@ class EmotionClassificationModel:
         avg_val_f1 = val_fscore / len(val_dataloader)
         return avg_val_loss, avg_val_f1
 
-    def train(self, train_dataloader, val_dataloader, n_epoch, optimizer, patience):
+    def train(self, train_dataloader, val_dataloader, n_epoch, optimizer, model_save_name, save=True, patience=3):
 
         train_losses, val_losses = [], []
         train_fscores, val_fscores = [], []
-        prev_val_score = 0
+        val_scores = []
         no_improv_epochs = 0
 
         for epoch in range(n_epoch):
@@ -95,9 +95,12 @@ class EmotionClassificationModel:
 
             # EARLY STOPPING CODE
             avg_val_loss, avg_val_f1 = self.validate(val_dataloader)
-            if avg_val_f1 < prev_val_score:
+            val_scores.append(avg_val_f1)
+            if max(val_scores) > avg_val_f1:
                 no_improv_epochs += 1
-            prev_val_score = avg_val_f1
+            else:
+                if save: 
+                    torch.save(self.model.state_dict(), model_save_name)
 
             if no_improv_epochs >= patience:
                 return None
