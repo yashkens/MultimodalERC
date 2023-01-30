@@ -4,7 +4,8 @@ from datasets import EmotionLinesDataset
 from sklearn.metrics import f1_score
 
 
-def prepare_data(tokenizer, data_path, bs, max_len):
+def prepare_data(tokenizer, data_path, bs, max_len, 
+                 n_context, sep, context_first):
     """
     Prepares datasets and data loaders from .csv files.
     Returns number of labels in data, three data loaders and test dataset (for testing).
@@ -18,6 +19,13 @@ def prepare_data(tokenizer, data_path, bs, max_len):
         Batch size.
     max_len: int
         Maximum sequence length. Used in tokenizer to truncate/pad sequences.
+    n_context: int
+        Context length. Takes n previuos utterances from the same dialogue and
+        concatinate it with target utterance.
+    sep: str
+        Special token that separates target utterance and context.
+    context_first: bool
+        Whether context precedes target utterance or not.
     """
     train_data = pd.read_csv(data_path + 'train.csv')
     test_data = pd.read_csv(data_path + 'test.csv')
@@ -29,9 +37,18 @@ def prepare_data(tokenizer, data_path, bs, max_len):
     for i in range(len(labels)):
         label_dict[labels[i]] = i
 
-    train_dataset = EmotionLinesDataset(train_data, label_dict, tokenizer, max_len=max_len)
-    dev_dataset = EmotionLinesDataset(dev_data, label_dict, tokenizer, max_len=max_len)
-    test_dataset = EmotionLinesDataset(test_data, label_dict, tokenizer, max_len=max_len)
+    train_dataset = EmotionLinesDatasetWithContext(train_data, label_dict, 
+                                                   tokenizer, max_len=max_len,
+                                                   n_context=n_context, sep=sep, 
+                                                   context_first=context_first)
+    dev_dataset = EmotionLinesDatasetWithContext(dev_data, label_dict, 
+                                                 tokenizer, max_len=max_len,
+                                                 n_context=n_context, sep=sep, 
+                                                 context_first=context_first)
+    test_dataset = EmotionLinesDatasetWithContext(test_data, label_dict, 
+                                                  tokenizer, max_len=max_len,
+                                                  n_context=n_context, sep=sep, 
+                                                  context_first=context_first)
 
     train_dataloader = DataLoader(train_dataset, batch_size=bs, shuffle=True)
     dev_dataloader = DataLoader(dev_dataset, batch_size=bs, shuffle=True)
