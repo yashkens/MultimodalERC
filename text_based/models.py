@@ -1,14 +1,19 @@
 import torch
 import wandb
 from sklearn.metrics import f1_score
+from torch.nn import DataParallel
 
 
 class EmotionClassificationModel:
 
-    def __init__(self, model, device):
+    def __init__(self, model, device, parallel=False):
         self.model = model
         self.device = device
-        self.model.to(device)
+        self.parallel = parallel
+        if self.parallel:
+            self.model = DataParallel(self.model).to(device)
+        else:
+            self.model.to(device)
 
     def __call__(self, input_ids, attn_mask):
 
@@ -19,7 +24,10 @@ class EmotionClassificationModel:
             attn_mask = attn_mask.to(self.device)
             output = self.model(input_ids=input_ids, attention_mask=attn_mask)
             logits = output['logits']
-            active_logits = logits.view(-1, self.model.num_labels)
+            if self.parallel:
+                active_logits = logits.view(-1, self.model.module.num_labels)
+            else:
+                active_logits = logits.view(-1, self.model.num_labels)
             pred = torch.argmax(active_logits, axis=1)
         return pred
 
@@ -40,10 +48,17 @@ class EmotionClassificationModel:
                 loss = output['loss']
                 logits = output['logits']
 
+                if self.parallel:
+                    if torch.cuda.device_count() > 1:
+                        loss = loss.mean()
+
                 val_loss += loss.item()
 
                 gold = labels.view(-1)
-                active_logits = logits.view(-1, self.model.num_labels)
+                if self.parallel:
+                    active_logits = logits.view(-1, self.model.module.num_labels)
+                else:
+                    active_logits = logits.view(-1, self.model.num_labels)
                 pred = torch.argmax(active_logits, axis=1)
 
                 fscore = f1_score(gold.cpu().numpy(), pred.cpu().numpy(), average='weighted')
@@ -75,6 +90,10 @@ class EmotionClassificationModel:
                 loss = output['loss']
                 logits = output['logits']
 
+                if self.parallel:
+                    if torch.cuda.device_count() > 1:
+                        loss = loss.mean()
+
                 train_loss += loss.item()
 
                 self.model.zero_grad()
@@ -82,7 +101,10 @@ class EmotionClassificationModel:
                 optimizer.step()
 
                 gold = labels.view(-1)
-                active_logits = logits.view(-1, self.model.num_labels)
+                if self.parallel:
+                    active_logits = logits.view(-1, self.model.module.num_labels)
+                else:
+                    active_logits = logits.view(-1, self.model.num_labels)
                 pred = torch.argmax(active_logits, axis=1)
 
                 fscore = f1_score(gold.cpu().numpy(), pred.cpu().numpy(), average='weighted')
@@ -99,8 +121,11 @@ class EmotionClassificationModel:
             if max(val_scores) > avg_val_f1:
                 no_improv_epochs += 1
             else:
-                if save: 
-                    torch.save(self.model.state_dict(), model_save_name)
+                if save:
+                    if self.parallel:
+                        torch.save(self.model.module.state_dict(), model_save_name)
+                    else:
+                        torch.save(self.model.state_dict(), model_save_name)
 
             if no_improv_epochs >= patience:
                 return None
