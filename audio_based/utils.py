@@ -4,7 +4,7 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from sklearn.metrics import f1_score
 from datasets import load_dataset, load_metric
-from custom_datasets import CREMADataset
+from custom_datasets import CREMADataset, MELDDataset
 from transformers import Wav2Vec2FeatureExtractor
 
 
@@ -18,6 +18,44 @@ def test(test_dataloader, answer_model):
     fscore = f1_score(gold, pred, average='weighted')
     return fscore
 
+def total_freeze(hubert_model):
+    for name, param in hubert_model.named_parameters():
+            if name.startswith("classifier") or name.startswith("projection"): 
+                continue
+            else:
+                param.requires_grad = False
+    return hubert_model
+
+def prepare_data_meld(bs, model_id):
+    data_files = {
+        "train": '/cephfs/home/dolidze/anaconda3/ERC/Audio_MELD/labeled/train_with_filenames.csv',
+        "test": '/cephfs/home/dolidze/anaconda3/ERC/Audio_MELD/labeled/test_with_filenames.csv',
+        "validation": '/cephfs/home/dolidze/anaconda3/ERC/Audio_MELD/labeled/dev_with_filenames.csv'
+    }
+
+    dataset = load_dataset("csv", data_files=data_files, delimiter="\,", )
+
+    train_dataset = dataset["train"]
+    test_dataset = dataset["test"]
+    eval_dataset = dataset["validation"]
+
+    label_list = train_dataset.unique("Emotion")
+    label_list.sort()
+    num_labels = len(label_list)
+    label2id = {label: i for i, label in enumerate(label_list)}
+    id2label = {i: label for i, label in enumerate(label_list)}
+
+    feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_id)
+
+    train = MELDDataset(train_dataset, label2id, feature_extractor)
+    dev = MELDDataset(eval_dataset, label2id, feature_extractor)
+    test = MELDDataset(test_dataset, label2id, feature_extractor)
+
+    train_dataloader = DataLoader(train, batch_size=bs, shuffle=True)
+    dev_dataloader = DataLoader(dev, batch_size=bs, shuffle=True)
+    test_dataloader = DataLoader(test, batch_size=bs, shuffle=True)
+
+    return num_labels, label2id, id2label, train_dataloader, dev_dataloader, test_dataloader
 
 def prepare_data(bs, model_id):
     data_files = {

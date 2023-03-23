@@ -6,7 +6,7 @@ import numpy as np
 from transformers import HubertForSequenceClassification, AutoConfig
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
-from utils import test, prepare_data
+from utils import test, prepare_data, prepare_data_meld, total_freeze
 from models import EmotionClassificationModel
 
 
@@ -19,7 +19,7 @@ parser.add_argument("--seed", default=42, type=int, help="random seed value")
 parser.add_argument("--data", default='CREMA', type=str)
 parser.add_argument("--encoder", default='facebook/hubert-base-ls960', type=str)
 parser.add_argument("--trainable_layers", default='all', type=str)
-
+# parser.add_argument("--parallel", default='parallel', type=str)
 
 def train_net(config=None):
     with wandb.init(config=config) as run:
@@ -30,12 +30,16 @@ def train_net(config=None):
 
         encoder_name = config.encoder.replace('facebook/', '')
         name_str = f"{config.data}-{encoder_name}_seed-{config.seed}-" \
-                   f"trainable_{config.trainable_layers}-{config.parallel}"
+                   f"trainable_{config.trainable_layers}-{config.parallel}--{config.lr}"
         run.name = name_str
         model_id = config.encoder
 
-        num_labels, label2id, id2label, \
-            train_dataloader, dev_dataloader, test_dataloader = prepare_data(config.batch_size, model_id)
+        if config.data == 'MELD':
+            num_labels, label2id, id2label, train_dataloader, dev_dataloader, test_dataloader =\
+                prepare_data_meld(config.batch_size, model_id)
+        else:
+            num_labels, label2id, id2label, train_dataloader, dev_dataloader, test_dataloader = \
+                prepare_data(config.batch_size, model_id)
         config_m = AutoConfig.from_pretrained(model_id, num_labels=num_labels)
         hubert_model = HubertForSequenceClassification.from_pretrained(
             model_id,
@@ -49,6 +53,10 @@ def train_net(config=None):
 
         optimizer = torch.optim.Adam(params=hubert_model.parameters(), lr=config.lr)
         save_name = name_str + '.pt'
+        
+        if config.trainable_layers == 'none':
+            hubert_model = total_freeze(hubert_model)
+
         answer_model = EmotionClassificationModel(hubert_model, num_classes=num_labels, device='cuda',
                                                   parallel=parallel)
 
