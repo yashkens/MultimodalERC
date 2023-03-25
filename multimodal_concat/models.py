@@ -115,9 +115,9 @@ class MultimodalClassificaionModel(nn.Module):
         self.video_model = video_model
         self.num_labels = num_labels
 
-        #         self.fc_norm = nn.LayerNorm(hidden_size)
         self.linear1 = nn.Linear(input_size, hidden_size)
         self.linear2 = nn.Linear(hidden_size, self.num_labels)
+        self.relu = nn.ReLU()
         self.loss_func = CrossEntropyLoss()
 
     def forward(self, batch, labels=None):
@@ -133,6 +133,7 @@ class MultimodalClassificaionModel(nn.Module):
         concat_input = torch.cat((text_last_hidden, video_last_hidden), dim=1)
 
         hidden_state = self.linear1(concat_input)
+        hidden_state = self.relu(hidden_state)
         logits = self.linear2(hidden_state)
 
         loss = None
