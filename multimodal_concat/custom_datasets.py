@@ -8,10 +8,11 @@ logging.set_verbosity_error()
 
 
 class MultimodalDataset(Dataset):
-    def __init__(self, text_data, video_data, tokenizer, video_feature_extractor, max_len, label_dict, video_dir,
+    def __init__(self, text_data, video_data, audio_data, tokenizer, video_feature_extractor, max_len, label_dict, video_dir,
                  data_part):
         self.text_data = text_data
         self.video_data = video_data
+        self.audio_data = audio_data
         self.tokenizer = tokenizer
         self.video_feature_extractor = video_feature_extractor
         self.max_len = max_len
@@ -30,7 +31,7 @@ class MultimodalDataset(Dataset):
         label = self.label_dict[text_cut['emotion']]
         return encoding, label, text_cut['dialog num'], text_cut['utt num']
 
-    def get_video_item(self, idx, file_path):
+    def get_video_item(self, file_path):
         video_cut = self.video_data[self.video_data['file_path'] == file_path]
         if len(video_cut) == 0:
             return {"pixel_values": torch.zeros([1, 16, 3, 224, 224])}
@@ -51,8 +52,10 @@ class MultimodalDataset(Dataset):
     def __getitem__(self, idx):
         text_encoding, label, dialog_num, utt_num = self.get_text_item(idx)
         video_path = f"{self.data_part}/dia{dialog_num}_utt{utt_num}/cutFrames"
-        video_encoding = self.get_video_item(idx, video_path)
-        return {'text': text_encoding, 'video': video_encoding, 'label': label}
+        video_encoding = self.get_video_item(video_path)
+        # TODO: should also be done through path, not index! (audio csv files do not provide it now)
+        audio_encoding = self.audio_data[idx]
+        return {'text': text_encoding, 'video': video_encoding, 'audio': audio_encoding, 'label': label}
 
     def __len__(self):
         return len(self.text_data)

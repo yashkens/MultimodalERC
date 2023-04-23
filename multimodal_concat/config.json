@@ -1,0 +1,24 @@
+{
+  "method": "grid",
+  "metric": {
+    "name": "val F1",
+    "goal": "maximize"
+  },
+  "parameters": {
+    "epochs": {
+      "value": 10
+    },
+    "bs": {
+      "value": 32
+    },
+    "lr": {
+      "value": 1e-5
+    },
+    "hidden_size": {
+      "value": 512
+    },
+    "seed": {
+      "values": [42]
+    }
+  }
+}

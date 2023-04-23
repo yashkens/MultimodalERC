@@ -5,7 +5,8 @@ from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
 from transformers import AutoProcessor, AutoTokenizer, AutoModelForSequenceClassification
 from custom_datasets import MultimodalDataset
-from models import TextClassificationModel, XCLIPClassificaionModel, VideoClassificationModel
+from models import TextClassificationModel, XCLIPClassificaionModel, \
+    VideoClassificationModel, ConvNet, AudioClassificationModel
 from transformers import logging
 logging.set_verbosity_error()
 
@@ -21,6 +22,15 @@ def add_utt_numeration(df):
     return df
 
 
+def prepare_audio_features(audio_path, data_part):
+    features = pd.read_csv(audio_path + f"{data_part}_features_emo.csv")
+    mean = features.mean(axis=0)
+    std = features.std(axis=0)
+    features = (features - mean) / std
+    features = features.values.reshape(features.shape[0], 1, features.shape[1])
+    return features
+
+
 def prepare_data(bs):  # TODO: add paths to arguments
     # TEXT
     text_path = '/cephfs/home/yashkens/MultimodalERC/MeldCSV/'
@@ -30,6 +40,13 @@ def prepare_data(bs):  # TODO: add paths to arguments
 
     text_model_name = 'bert-large-uncased'
     tokenizer = AutoTokenizer.from_pretrained(text_model_name)
+
+    # LABEL DICT
+    num_labels = len(set(train_text['emotion']))
+    labels = sorted(list(set(train_text['emotion'])))
+    label_dict = {}
+    for i in range(len(labels)):
+        label_dict[labels[i]] = i
 
     # VIDEO
     video_path = '/cephfs/home/yashkens/MultimodalERC/Video/MELDSpeakers/'
@@ -42,17 +59,17 @@ def prepare_data(bs):  # TODO: add paths to arguments
     video_model_name = "microsoft/xclip-base-patch32"
     video_feature_extractor = AutoProcessor.from_pretrained(video_model_name)
 
-    # LABEL DICT
-    num_labels = len(set(train_text['emotion']))
-    labels = sorted(list(set(train_text['emotion'])))
-    label_dict = {}
-    for i in range(len(labels)):
-        label_dict[labels[i]] = i
+    # AUDIO
+    audio_path = "/cephfs/home/chepel/Audio/MELD Audio/"
+    train_audio = prepare_audio_features(audio_path, 'train')
+    test_audio = prepare_audio_features(audio_path, 'test')
+    dev_audio = prepare_audio_features(audio_path, 'dev')
 
     # MULTIMODAL
     multi_train = MultimodalDataset(
         train_text,
         train_video,
+        train_audio,
         tokenizer,
         video_feature_extractor,
         max_len=128,
@@ -63,6 +80,7 @@ def prepare_data(bs):  # TODO: add paths to arguments
     multi_test = MultimodalDataset(
         test_text,
         test_video,
+        test_audio,
         tokenizer,
         video_feature_extractor,
         max_len=128,
@@ -73,6 +91,7 @@ def prepare_data(bs):  # TODO: add paths to arguments
     multi_dev = MultimodalDataset(
         dev_text,
         dev_video,
+        dev_audio,
         tokenizer,
         video_feature_extractor,
         max_len=128,
@@ -95,22 +114,26 @@ def prepare_models(num_labels, device='cuda'):  # TODO: add paths to arguments
         text_model_name,
         num_labels=num_labels
     )
-
     save_name = '/cephfs/home/yashkens/MultimodalERC/Concatenation/checkpoints/bert-large-uncased_none_seed-42.pt'
     state_dict = torch.load(save_name)
     text_base_model.load_state_dict(state_dict)
-
     text_model = TextClassificationModel(text_base_model, device=device)
 
     # VIDEO
     video_base_model = XCLIPClassificaionModel(num_labels)
-
     save_name = '/cephfs/home/yashkens/MultimodalERC/Concatenation/checkpoints/XCLIP_Augmented.pt'
     state_dict = torch.load(save_name)
     video_base_model.load_state_dict(state_dict)
-
     video_model = VideoClassificationModel(video_base_model, device=device)
-    return text_model, video_model
+
+    # AUDIO
+    audio_base_model = ConvNet(num_labels)
+    save_name = '/cephfs/home/yashkens/MultimodalERC/Concatenation/checkpoints/1d_cnn_with_opensmile.pt'
+    checkpoint = torch.load(save_name)
+    audio_base_model.load_state_dict(checkpoint['model_state_dict'])
+    audio_model = AudioClassificationModel(audio_base_model, device=device)
+
+    return text_model, video_model, audio_model
 
 
 def test(test_dataloader, answer_model):

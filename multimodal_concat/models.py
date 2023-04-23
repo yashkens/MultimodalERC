@@ -107,17 +107,69 @@ class VideoClassificationModel:
             return pred
 
 
+class ConvNet(nn.Module):
+    def __init__(self, num_labels):
+        super(ConvNet, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=1)
+        self.pool = nn.MaxPool1d(kernel_size=2)
+        self.flat = nn.Flatten()
+        self.fc1 = nn.Linear(3186 * 32, 128)
+        self.fc2 = nn.Linear(128, num_labels)
+
+    def forward(self, x, return_last_hidden_state=False):
+        x = torch.relu(self.conv1(x))
+        x = self.pool(x)
+        x = self.flat(x)
+        hid = torch.relu(self.fc1(x))
+        x = self.fc2(hid)
+        if not return_last_hidden_state:
+            return {'logits': x}
+        else:
+            return {'logits': x, 'last_hidden_state': hid}
+
+
+class AudioClassificationModel:
+
+    def __init__(self, model, device):
+        self.model = model
+        self.device = device
+        self.model.to(device)
+
+    def __call__(self, input_ids, return_last_hidden_state=False):
+
+        self.model.eval()
+
+        with torch.no_grad():
+
+            input_ids = torch.tensor(input_ids, dtype=torch.float).to(self.device)
+            output = self.model(input_ids, return_last_hidden_state=return_last_hidden_state)
+            logits = output['logits']
+            pred = torch.argmax(logits, dim=1)
+            if return_last_hidden_state:
+                hidden_state = output['last_hidden_state']
+        if return_last_hidden_state:
+            return pred, hidden_state
+        else:
+            return pred
+
+
 class MultimodalClassificaionModel(nn.Module):
-    def __init__(self, text_model, video_model, num_labels, input_size, hidden_size=256):
+    def __init__(self, text_model, video_model, audio_model, num_labels, input_size, hidden_size=256):
         super(MultimodalClassificaionModel, self).__init__()
 
         self.text_model = text_model
         self.video_model = video_model
+        self.audio_model = audio_model
         self.num_labels = num_labels
 
-        self.linear1 = nn.Linear(input_size, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, self.num_labels)
-        self.relu = nn.ReLU()
+        self.linear1 = nn.Linear(input_size, self.num_labels)
+        # self.linear1 = nn.Linear(input_size, hidden_size)
+        # self.linear2 = nn.Linear(hidden_size, hidden_size // 2)
+        # self.linear3 = nn.Linear(hidden_size // 2, self.num_labels)
+        # self.relu1 = nn.ReLU()
+        # self.relu2 = nn.ReLU()
+        # self.drop1 = nn.Dropout()
+        # self.drop2 = nn.Dropout()
         self.loss_func = CrossEntropyLoss()
 
     def forward(self, batch, labels=None):
@@ -130,11 +182,18 @@ class MultimodalClassificaionModel(nn.Module):
             batch['video']['pixel_values'].squeeze(1),
             return_last_hidden_state=True
         )
-        concat_input = torch.cat((text_last_hidden, video_last_hidden), dim=1)
+        audio_pred, audio_last_hidden = self.audio_model(
+            batch['audio'],
+            return_last_hidden_state=True
+        )
+        concat_input = torch.cat((text_last_hidden, video_last_hidden, audio_last_hidden), dim=1)
 
-        hidden_state = self.linear1(concat_input)
-        hidden_state = self.relu(hidden_state)
-        logits = self.linear2(hidden_state)
+        # hidden_state = self.linear1(concat_input)
+        # hidden_state = self.drop1(self.relu1(hidden_state))
+        # hidden_state = self.linear2(hidden_state)
+        # hidden_state = self.drop2(self.relu2(hidden_state))
+        # logits = self.linear3(hidden_state)
+        logits = self.linear1(concat_input)
 
         loss = None
         if labels is not None:
