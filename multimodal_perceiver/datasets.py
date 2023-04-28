@@ -9,28 +9,18 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 
-class ImageEmotionDataset(Dataset):
+class MultimodalEmotionDataset(Dataset):
     def __init__(self, data, label2id, clip_len=16, frame_sample_rate=4):
         self.label_dict = label2id
-        self.data = data        
+        self.data = data
+        self.clip_len = clip_len
+        self.frame_sample_rate = frame_sample_rate
 
     def __getitem__(self, idx):
         video_path = self.data.iloc[idx]['Video_Path']
         audio_path = self.data.iloc[idx]['Audio_Path']
         
-        all_frames = os.listdir(video_path)
-        selected_inds = self.sample_frame_indices(len(all_frames))
-        selected_frames = [str(max(i, 0) + 1) + '.png' for i in selected_inds]
-
-        video = []
-        for frame in selected_frames:
-            image_path = video_path + '/' + frame
-            img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            res = cv2.resize(img, dsize=(224, 224), interpolation=cv2.INTER_CUBIC)
-            video.append(res)
-
-        encoding = np.array(video)
+        encoding = self.get_frames(video_path)
         encoding = torch.Tensor(np.transpose(encoding, (0, 3, 1, 2)))
         
         sample_rate, audio = scipy.io.wavfile.read(audio_path)
@@ -38,10 +28,11 @@ class ImageEmotionDataset(Dataset):
         selected_frames_audio = self.sample_frame_indices(audio.shape[0],
                                                          frame_sample_rate=sample_rate//25,
                                                          mode="audio")
-        audio = audio[None, selected_frames_audio, 0:1]
+        audio = torch.Tensor(audio[None, selected_frames_audio])
+        audio = audio.unsqueeze(2)
         
-        label = self.label_dict[self.data.iloc[idx]['Emotion']]
-        label_vector = torch.zeros([7])
+        label = self.label_dict[self.data.iloc[idx]['emotion']]
+        label_vector = torch.zeros([6])
         label_vector[label] = 1
         
         return {'image': encoding, 'audio': audio, 'label': label_vector}
@@ -63,39 +54,57 @@ class ImageEmotionDataset(Dataset):
         indices = np.clip(indices, start_idx, end_idx - 1).astype(np.int64)
         return indices
     
+    def get_frames(self, file_path):
+        cap = cv2.VideoCapture(file_path)
+        v_len = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        indices = self.sample_frame_indices(v_len)
+
+        frames = []
+        for fn in range(v_len):
+            success, frame = cap.read()
+            if success is False:
+                continue
+            if (fn in indices):
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  
+                res = cv2.resize(frame, dsize=(224, 224), interpolation=cv2.INTER_CUBIC)
+                frames.append(res)
+        cap.release()
+            
+        if len(frames) < self.clip_len:
+            add_num = self.clip_len - len(frames)
+            frames_to_add = [frames[-1]] * add_num
+            frames.extend(frames_to_add)
+
+        return np.array(frames)
     
-def fullfill_path(df: pd.DataFrame, part: str) -> pd.DataFrame:
-    df.Video_Path = '/cephfs/home/yashkens/MultimodalERC/Video/MELDSpeakers/' + df.Video_Path
-    df.Audio_Path = f'/cephfs/home/chepel/Audio/MELD Audio/audio_{part}/' + df.Audio_Path
-    return df.query('not Video_Path.isnull()')
     
-def prepare_data(bs):
-    train = pd.read_csv('/cephfs/home/mikhaylova/multimodal_emo_reco/MELD_csv/multimodal_train.csv', 
-                        usecols=['Dialogue_ID', 'Utterance_ID', 
-                                 'Utterance', 'Emotion', 'Video_Path',
-                                 'Audio_Path'])
-    val = pd.read_csv('/cephfs/home/mikhaylova/multimodal_emo_reco/MELD_csv/multimodal_dev.csv', 
-                        usecols=['Dialogue_ID', 'Utterance_ID', 
-                                 'Utterance', 'Emotion', 'Video_Path',
-                                 'Audio_Path'])
-    test = pd.read_csv('/cephfs/home/mikhaylova/multimodal_emo_reco/MELD_csv/multimodal_test.csv', 
-                        usecols=['Dialogue_ID', 'Utterance_ID', 
-                                 'Utterance', 'Emotion', 'Video_Path',
-                                 'Audio_Path'])
+def fullfill_path(df: pd.DataFrame, video_path: str, audio_path: str) -> pd.DataFrame:
+    df['Video_Path'] = video_path + df.file_path
+    df.file_path = df.file_path.apply(lambda x: x[:-4])
+    df['Audio_Path'] = audio_path + df.file_path + '.wav'
+    return df
     
-    train = fullfill_path(train, 'train')
-    val = fullfill_path(val, 'dev')
-    test = fullfill_path(test, 'test')
+def prepare_data(bs: int, csv_path: str='/cephfs/home/mikhaylova/multimodal_emo_reco/CREMA-D/CSV',
+                video_path: str='/cephfs/home/mikhaylova/multimodal_emo_reco/CREMA-D/VideoFlash/',
+                audio_path: str='/cephfs/home/mikhaylova/AudioWAV-CREMA/'):
+    head_folder = csv_path
+    train = pd.read_csv(f'{head_folder}/train.csv')
+    val = pd.read_csv(f'{head_folder}/val.csv')
+    test = pd.read_csv(f'{head_folder}/test.csv')
     
-    labels = list(set(train['Emotion']))
+    train = fullfill_path(train, video_path, audio_path)
+    val = fullfill_path(val, video_path, audio_path)
+    test = fullfill_path(test, video_path, audio_path)
+    
+    labels = list(set(train['emotion']))
     label2id, id2label = dict(), dict()
     for i, label in enumerate(labels):
         label2id[label] = i
         id2label[i] = label
     
-    train_dataset = ImageEmotionDataset(train, label2id)
-    test_dataset = ImageEmotionDataset(test, label2id)
-    val_dataset = ImageEmotionDataset(val, label2id)
+    train_dataset = MultimodalEmotionDataset(train, label2id)
+    test_dataset = MultimodalEmotionDataset(test, label2id)
+    val_dataset = MultimodalEmotionDataset(val, label2id)
     
     train_dataloader = DataLoader(train_dataset, batch_size=bs, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=bs, shuffle=True)
