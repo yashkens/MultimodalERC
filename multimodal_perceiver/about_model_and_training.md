@@ -94,8 +94,7 @@ Sources:
         (0): Linear(in_features=512, out_features=256, bias=True)
         (1): Dropout(p=0.3, inplace=True)
         (2): Linear(in_features=256, out_features=6, bias=True)
-      )
-    )</code>
+      )</code>
 
 ## Previous training hyperparams
 
@@ -103,4 +102,4 @@ Sources:
 2. epochs = 10
 3. learning rate = 0.01
 
-<a style="color: rgb(204, 121, 167);" href='https://wandb.ai/annette-mikhaylova/crema-perceiver?workspace='>Wandb link</a>
+<a href='https://wandb.ai/annette-mikhaylova/crema-perceiver?workspace='>Wandb link</a>
