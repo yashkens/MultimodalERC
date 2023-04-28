@@ -26,13 +26,19 @@
 
 `/cephfs/home/mikhaylova/multimodal_emo_reco/CREMA-D/CSV/`
 
+**Размер:** 208K
+
 2. Video files, format: `flv`, лежат в директории
 
 `/cephfs/home/mikhaylova/multimodal_emo_reco/CREMA-D/VideoFlash/`
 
+**Размер**: 2.3 G
+
 3. Audio files, format: `wav`, лежат в директории
 
 `/cephfs/home/mikhaylova/AudioWAV-CREMA/`
+
+**Размер:** 580 M
 
 ## Few words about model
 
