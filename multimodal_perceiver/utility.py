@@ -1,5 +1,4 @@
 import random
-import re
 import numpy as np
 import wandb
 
@@ -14,7 +13,8 @@ import accelerate
 
 def change_model(model: torch.nn.Module,
                  label2id: dict,
-                 id2label: dict) -> torch.nn.Module:
+                 id2label: dict,
+                 num_labels: int = 7) -> torch.nn.Module:
     # change label2id and id2label in config
     conf_change = {'label2id': label2id, 'id2label': id2label}
     new_config = model.perceiver.input_preprocessor.modalities.label.config.__dict__
@@ -22,13 +22,16 @@ def change_model(model: torch.nn.Module,
         new_config[k] = v
 
     # change minimal padding so label vector becomes length of 704 to fit attention vector size
-    model.perceiver.input_preprocessor.padding['label'] = nn.parameter.Parameter(torch.rand([1, 697]))
+    pad_size = 700 - num_labels
+    model.perceiver.input_preprocessor.padding['label'] = nn.parameter.Parameter(torch.rand([1, pad_size]))
     # change minimal padding parameter 
     model.perceiver.input_preprocessor.min_padding_size = 303 
 
     # change output linear layer
-    model.perceiver.output_postprocessor.modalities.label.classifier = nn.Linear(
-        in_features=512, out_features=7, bias=True
+    model.perceiver.output_postprocessor.modalities.label.classifier = nn.Sequential(
+        nn.Linear(in_features=512, out_features=256, bias=True),
+        nn.Dropout(0.3, inplace=True),
+        nn.Linear(in_features=256, out_features=num_labels, bias=True)
     )
     return model
 
@@ -51,13 +54,12 @@ def train_net(config=None):
         device = 'cuda'
         
         model = PerceiverForMultimodalAutoencoding.from_pretrained('deepmind/multimodal-perceiver', low_cpu_mem_usage=True)
-        model = change_model(model, label2id, id2label)
+        model = change_model(model, label2id, id2label, num_labels)
         
         # Define loss and optimizer
         loss_fn = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
         
-        patience = 3
         train(model=model,
               train_dataloader=train_dataloader,
               val_dataloader=dev_dataloader,
@@ -65,7 +67,7 @@ def train_net(config=None):
               loss_fn=loss_fn,
               epochs=config.epochs,
               device=device,
-              patience=patience)
+              patience=config.patience)
         
         test_fscore = test_step(model=model,
                                 dataloader=test_dataloader,
@@ -73,5 +75,9 @@ def train_net(config=None):
         
         wandb.log({"test F1": test_fscore})
         
-        save_name = 'saving_models/' + name_str + '.pt'
-        model.load_state_dict(torch.load(save_name))
+#         save_name = 'saving_models/' + name_str + '.pt'
+#         torch.save({
+#             'epoch': config.epochs,
+#             'model_state_dict': model.state_dict(),
+#             'optimizer_state_dict': optimizer.state_dict(),
+#             }, save_name)
