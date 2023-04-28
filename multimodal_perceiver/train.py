@@ -5,14 +5,15 @@ import wandb
 import random
 import numpy as np
 from sklearn.metrics import f1_score
+from torch.nn import DataParallel
 
 import accelerate
 
 def generate_subsampling(nchunks, samples_per_patch, im_shape, au_shape):
-    chunk_idx = random.randint(0, nchunks)
-
+    chunk_idx = random.randint(0, nchunks - 1)
     image_chunk_size = np.prod(im_shape[1:-1]) // nchunks
     audio_chunk_size = au_shape[1] // samples_per_patch // nchunks
+
     subsampling = {
         'image': torch.arange(
             image_chunk_size * chunk_idx, image_chunk_size * (chunk_idx + 1)),
@@ -20,7 +21,6 @@ def generate_subsampling(nchunks, samples_per_patch, im_shape, au_shape):
             audio_chunk_size * chunk_idx, audio_chunk_size * (chunk_idx + 1)),
         'label': None,
     }
-
     return subsampling
 
 def train_step(model: torch.nn.Module, 
@@ -36,12 +36,15 @@ def train_step(model: torch.nn.Module,
     for i, batch in enumerate(dataloader):
         batch = {k: batch[k].to(device) for k in batch.keys()}
         subsample = generate_subsampling(32, 16, batch['image'].shape, batch['audio'].shape)
+        
         y_pred = model(inputs=batch, subsampled_output_points=subsample)
         
         y_pred = y_pred['logits']['label']
         y = batch['label']
         loss = loss_fn(y_pred, y)
-        train_loss += loss.item() 
+        if torch.cuda.device_count() > 1:
+            loss = loss.mean()
+        train_loss += loss
 
         optimizer.zero_grad()
         loss.backward()
@@ -49,7 +52,7 @@ def train_step(model: torch.nn.Module,
 
         y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
         train_fscore += f1_score(y.argmax(dim=1).cpu().numpy(), y_pred_class.cpu().numpy(), average='weighted')
-
+        
         wandb.log({"batch train loss": loss.item()})
 
     avg_train_loss = train_loss / len(dataloader)
@@ -77,7 +80,9 @@ def val_step(model: torch.nn.Module,
                 y = batch['label']
 
                 loss = loss_fn(y_pred, y)
-                val_loss += loss.item()
+                if torch.cuda.device_count() > 1:
+                    loss = loss.mean()
+                val_loss += loss
 
                 y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
                 val_fscore += f1_score(y.argmax(dim=1).cpu().numpy(), y_pred_class.cpu().numpy(), average='weighted')
@@ -134,7 +139,7 @@ def train(model: torch.nn.Module,
           device: torch.device,
           patience: int) -> None:
 
-    model.to(device)
+    model = DataParallel(model).to(device)
     
     train_losses, val_losses = [], []
     train_fscores, val_fscores = [], []
