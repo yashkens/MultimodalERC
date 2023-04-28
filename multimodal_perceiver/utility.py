@@ -22,7 +22,7 @@ def change_model(model: torch.nn.Module,
         new_config[k] = v
 
     # change minimal padding so label vector becomes length of 704 to fit attention vector size
-    pad_size = 700 - num_labels
+    pad_size = 704 - num_labels
     model.perceiver.input_preprocessor.padding['label'] = nn.parameter.Parameter(torch.rand([1, pad_size]))
     # change minimal padding parameter 
     model.perceiver.input_preprocessor.min_padding_size = 303 
