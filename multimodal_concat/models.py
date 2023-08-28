@@ -162,7 +162,10 @@ class MultimodalClassificaionModel(nn.Module):
         self.audio_model = audio_model
         self.num_labels = num_labels
 
-        self.linear1 = nn.Linear(input_size, self.num_labels)
+        self.linear1 = nn.Linear(input_size, hidden_size)
+        self.linear2 = nn.Linear(hidden_size, self.num_labels)
+        self.relu1 = nn.ReLU()
+        self.drop1 = nn.Dropout()
         # self.linear1 = nn.Linear(input_size, hidden_size)
         # self.linear2 = nn.Linear(hidden_size, hidden_size // 2)
         # self.linear3 = nn.Linear(hidden_size // 2, self.num_labels)
@@ -188,12 +191,15 @@ class MultimodalClassificaionModel(nn.Module):
         )
         concat_input = torch.cat((text_last_hidden, video_last_hidden, audio_last_hidden), dim=1)
 
+        hidden_state = self.linear1(concat_input)
+        hidden_state = self.drop1(self.relu1(hidden_state))
+        logits = self.linear2(hidden_state)
         # hidden_state = self.linear1(concat_input)
         # hidden_state = self.drop1(self.relu1(hidden_state))
         # hidden_state = self.linear2(hidden_state)
         # hidden_state = self.drop2(self.relu2(hidden_state))
         # logits = self.linear3(hidden_state)
-        logits = self.linear1(concat_input)
+        # logits = self.linear1(concat_input)
 
         loss = None
         if labels is not None:
